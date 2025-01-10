@@ -16,18 +16,14 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
     address public immutable WETH;
 
     event SwapExecuted(
-        address indexed sender,
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
+        address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut
     );
 
+    error SwapFailed();
     error InvalidPath();
     error DeadlinePassed();
-    error InsufficientAmount();
     error TransferFailed();
-    error SwapFailed();
+    error InsufficientAmount();
 
     modifier validDeadline(uint256 deadline) {
         if (block.timestamp > deadline) revert DeadlinePassed();
@@ -45,93 +41,50 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
         WETH = uniswapRouterV2.WETH();
     }
 
+    /**
+     * @notice Swaps an exact amount of input tokens for output tokens
+     * @param amountIn Amount of input tokens to send
+     * @param amountOutMin Minimum amount of output tokens to receive
+     * @param path Array of token addresses respresnting the swap path
+     * @param recipient Address to recieve the output tokens
+     * @param deadline deadline Unix timestamp after which the transaction will revert
+     * @return amounts Array of amounts for each swap in the path
+     */
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256 amountOutMin,
         address[] calldata path,
         address recipient,
         uint256 deadline
-    ) external NotShortPath(path) returns (uint256[] memory amounts) {
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+    ) external nonReentrant validPath(path) validDeadline(deadline) returns (uint256[] memory amounts) {
+        if (amountIn == 0) revert InsufficientAmount();
+        if (recipient == address(0)) revert("Invalid recipient");
 
-        IERC20(path[0]).approve(address(uniswapRouterV2), amountIn);
+        // Transfer tokens from sender to this contract
+        bool success = IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+        if (!success) revert TransferFailed();
 
-        uniswapRouterV2.swapExactTokensForTokens(amountIn, amountOutMin, path, recipient, deadline);
+        // Approve tokens from sender to this contract
+        _approveRouter(path[0], amountIn);
+
+        // Execute swap
+        try uniswapRouterV2.swapExactTokensForTokens(amountIn, amountOutMin, path, recipient, deadline) returns (
+            uint256[] memory _amounts
+        ) {
+            amounts = _amounts;
+            emit SwapExecuted(msg.sender, path[0], path[path.length - 1], amountIn, amounts[amounts.length - 1]);
+        } catch {
+            revert SwapFailed();
+        }
     }
 
-    function swapTokensForExactTokens(
-        uint256 amountOut,
-        uint256 amountInMax,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external NotShortPath(path) returns (uint256[] memory amounts) {
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountInMax);
-
-        IERC20(path[0]).approve(address(uniswapRouterV2), amountInMax);
-
-        uniswapRouterV2.swapTokensForExactTokens(amountOut, amountInMax, path, recipient, deadline);
-    }
-
-    function swapExactETHForTokens(uint256 amountOutMin, address token, address recipient, uint256 deadline)
-        external
-        payable
-        NotShortPath(path)
-        returns (uint256[] memory amounts)
-    {
-        address;
-        path[0] = WETH;
-        path[1] = token;
-
-        uniswapRouterV2.swapExactETHForTokens(amountOutMin, path, recipient, deadline);
-    }
-
-    function swapTokensForExactETH(
-        uint256 amountOut,
-        address token,
-        uint256 amountInMax,
-        address recipient,
-        uint256 deadline
-    ) external NotShortPath(path) returns (uint256[] memory amounts) {
-        address;
-        path[0] = token;
-        path[1] = WETH;
-
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountInMax);
-
-        IERC20(path[0]).approve(address(uniswapRouterV2), amountInMax);
-
-        uniswapRouterV2.swapTokensForExactETH(amountOut, amountInMax, path, recipient, deadline);
-    }
-
-    function swapExactTokensForETH(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address token,
-        address recipient,
-        uint256 deadline
-    ) external returns (uint256[] memory amounts) {
-        address;
-        path[0] = token;
-        path[1] = WETH;
-
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
-
-        IERC20(path[0]).approve(address(uniswapRouterV2), amountIn);
-
-        uniswapRouterV2.swapExactTokensForETH(amountIn, amountOutMin, path, recipient, deadline);
-    }
-
-    function swapETHForExactTokens(uint256 amountOut, address token, address recipient, uint256 deadline)
-        external
-        payable
-        NotShortPath(path)
-        returns (uint256[] memory amounts)
-    {
-        address;
-        path[0] = WETH;
-        path[1] = token;
-
-        uniswapRouterV2.swapETHForExactTokens(amountOut, path, recipient, deadline);
+    /**
+     * @dev Approves the router to spend tokens
+     * @param token The token to approve
+     * @param amount The amount to approve
+     */
+    function _approveRouter(address _token, uint256 _amount) internal {
+        IERC20(_token).approve(address(uniswapRouterV2), 0); // Reset inital approval
+        IERC20(_token).approve(address(uniswapRouterV2), _amount);
     }
 }
