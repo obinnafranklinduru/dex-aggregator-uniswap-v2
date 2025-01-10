@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IUniswapV2Router02} from "v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 /**
  * @title AggregatorSwap
@@ -71,7 +71,7 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
         try uniswapRouterV2.swapExactTokensForTokens(amountIn, amountOutMin, path, recipient, deadline) returns (
             uint256[] memory _amounts
         ) {
-            amounts = _amounts;
+            uint256[] memory amounts = _amounts;
             emit SwapExecuted(msg.sender, path[0], path[path.length - 1], amountIn, amounts[amounts.length - 1]);
         } catch {
             revert SwapFailed();
@@ -79,12 +79,75 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
     }
 
     /**
+     * @notice Swaps ETH for an exact amount of tokens
+     * @param amountOut Exact amount of ouput tokens to recieve
+     * @param token Address of the token to recieve
+     * @param recipient Address to receive the output tokens
+     * @param deadline Unix timestamp after whichn the transaction will revert
+     */
+    function swapETHForExactTokens(
+        uint256 amountOut,
+        address token,
+        address recipient,
+        uint256 deadline
+    ) external payable nonReentrant validDeadline(deadline) returns (uint256 [] memory amounts) {
+        if (amountOut == 0) revert InsufficientAmount();
+        if (token == address) revert("Invaild token");
+        if (recipient == address(0)) revert("Invaild recipient");
+
+        address[] memory path = new address[](2);
+        path[0] = address(WETH);
+        path[1] = address(token);
+
+        try uniswapRouterV2.swapETHForExactTokens{value: msg.value}(
+            amountOut,
+            path,
+            recipient,
+            deadline
+        )returns (uint256[] memory _amounts){
+            uint256[] memory amounts = _amounts;
+            emit SwapExecuted(msg.sender, WETH, token, msg.value, amountOut);
+
+            // Refund excess ETH if any
+            if(address(this).balance > 0) {
+                (bool success, ) = address(msg.sender).call{value: address(this).balance}("");
+                if(!success) revert("ETH refund failed");
+            }
+        } catch {
+            revert SwapFailed();
+        }
+    }
+
+    /**
      * @dev Approves the router to spend tokens
-     * @param token The token to approve
-     * @param amount The amount to approve
+     * @param _token The token to approve
+     * @param _amount The amount to approve
      */
     function _approveRouter(address _token, uint256 _amount) internal {
         IERC20(_token).approve(address(uniswapRouterV2), 0); // Reset inital approval
         IERC20(_token).approve(address(uniswapRouterV2), _amount);
     }
+
+    /**
+     * @notice Allows the owner to rescue stuck tokens
+     * @param _token The token to rescue
+     * @param _amount The amount to rescue
+     */
+    function rescueTokens(addrss _token, uint256 _amount) external onlyOwner {
+        IERC20(_token).transfer(owner(), _amount);
+    }
+
+    /**
+     * @notice Allows the owner to rescue stuck ETH
+     */
+    function rescueETH() external onlyOwner {
+        (bool success, ) = owner().call{value: address(this).balance}("");
+        if(!success) revert("ETH rescue failed");
+    }
+
+    // Function to receive ETH when msg.data is empty
+    receive() external payable{}
+
+    // Function to receive ETH when msg.data is not empty
+    fallback() external payable{}
 }
