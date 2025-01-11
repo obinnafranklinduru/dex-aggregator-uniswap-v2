@@ -12,8 +12,7 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
  * @dev Implements various swap functions with safety checks and proper error handling
  */
 contract AggregatorSwap is ReentrancyGuard, Ownable {
-    UniswapV2Router02 public immutable uniswapRouterV2;
-    address public immutable WETH;
+    IUniswapV2Router02 public immutable uniswapRouterV2;
 
     event SwapExecuted(
         address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut
@@ -38,7 +37,6 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
     constructor(address _uniswapRouterV2) Ownable(msg.sender) {
         if (_uniswapRouterV2 == address(0)) revert("Zero address");
         uniswapRouterV2 = IUniswapV2Router02(_uniswapRouterV2);
-        WETH = uniswapRouterV2.WETH();
     }
 
     /**
@@ -71,7 +69,7 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
         try uniswapRouterV2.swapExactTokensForTokens(amountIn, amountOutMin, path, recipient, deadline) returns (
             uint256[] memory _amounts
         ) {
-            uint256[] memory amounts = _amounts;
+            amounts = _amounts;
             emit SwapExecuted(msg.sender, path[0], path[path.length - 1], amountIn, amounts[amounts.length - 1]);
         } catch {
             revert SwapFailed();
@@ -85,33 +83,31 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
      * @param recipient Address to receive the output tokens
      * @param deadline Unix timestamp after whichn the transaction will revert
      */
-    function swapETHForExactTokens(
-        uint256 amountOut,
-        address token,
-        address recipient,
-        uint256 deadline
-    ) external payable nonReentrant validDeadline(deadline) returns (uint256 [] memory amounts) {
+    function swapETHForExactTokens(uint256 amountOut, address token, address recipient, uint256 deadline)
+        external
+        payable
+        nonReentrant
+        validDeadline(deadline)
+        returns (uint256[] memory amounts)
+    {
         if (amountOut == 0) revert InsufficientAmount();
-        if (token == address) revert("Invaild token");
+        if (token == address(0)) revert("Invaild token");
         if (recipient == address(0)) revert("Invaild recipient");
 
         address[] memory path = new address[](2);
-        path[0] = address(WETH);
+        path[0] = address(uniswapRouterV2.WETH());
         path[1] = address(token);
 
-        try uniswapRouterV2.swapETHForExactTokens{value: msg.value}(
-            amountOut,
-            path,
-            recipient,
-            deadline
-        )returns (uint256[] memory _amounts){
-            uint256[] memory amounts = _amounts;
-            emit SwapExecuted(msg.sender, WETH, token, msg.value, amountOut);
+        try uniswapRouterV2.swapETHForExactTokens{value: msg.value}(amountOut, path, recipient, deadline) returns (
+            uint256[] memory _amounts
+        ) {
+            amounts = _amounts;
+            emit SwapExecuted(msg.sender, address(uniswapRouterV2.WETH()), token, msg.value, amountOut);
 
             // Refund excess ETH if any
-            if(address(this).balance > 0) {
-                (bool success, ) = address(msg.sender).call{value: address(this).balance}("");
-                if(!success) revert("ETH refund failed");
+            if (address(this).balance > 0) {
+                (bool success,) = address(msg.sender).call{value: address(this).balance}("");
+                if (!success) revert("ETH refund failed");
             }
         } catch {
             revert SwapFailed();
@@ -133,21 +129,22 @@ contract AggregatorSwap is ReentrancyGuard, Ownable {
      * @param _token The token to rescue
      * @param _amount The amount to rescue
      */
-    function rescueTokens(addrss _token, uint256 _amount) external onlyOwner {
-        IERC20(_token).transfer(owner(), _amount);
+    function rescueTokens(address _token, uint256 _amount) external onlyOwner {
+        bool success = IERC20(_token).transfer(owner(), _amount);
+        if (!success) revert("Token rescue failed");
     }
 
     /**
      * @notice Allows the owner to rescue stuck ETH
      */
     function rescueETH() external onlyOwner {
-        (bool success, ) = owner().call{value: address(this).balance}("");
-        if(!success) revert("ETH rescue failed");
+        (bool success,) = owner().call{value: address(this).balance}("");
+        if (!success) revert("ETH rescue failed");
     }
 
     // Function to receive ETH when msg.data is empty
-    receive() external payable{}
+    receive() external payable {}
 
     // Function to receive ETH when msg.data is not empty
-    fallback() external payable{}
+    fallback() external payable {}
 }
