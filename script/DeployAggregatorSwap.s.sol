@@ -14,7 +14,7 @@ contract DeployAggregatorSwap is Script {
         AggregatorSwap aggregator = new AggregatorSwap(address(UNISWAP_V2_ROUTER_02));
 
         vm.stopBroadcast();
-        
+
         return aggregator;
     }
 }
