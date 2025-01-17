@@ -45,18 +45,18 @@ contract AggregatorSwapTest is Test {
         vm.stopPrank();
     }
 
-    // function testSwapETHForExactTokens() public {
-    //     vm.deal(user, 10 ether);
-    //     vm.startPrank(user);
+    function testSwapETHForExactTokens() public {
+        vm.deal(user, 10 ether);
+        vm.startPrank(user);
 
-    //     uint256[] memory amounts = aggregatorSwap.swapETHForExactTokens{value: 1 ether}(
-    //         10 ether, address(tokenB), user, block.timestamp + 1 hours
-    //     );
+        uint256[] memory amounts = aggregatorSwap.swapETHForExactTokens{value: 1 ether}(
+            10 ether, address(tokenB), user, block.timestamp + 1 hours
+        );
 
-    //     // assertEq(amounts[amounts.length - 1], 10 ether);
-    //     // assertEq(tokenB.balanceOf(user), 10 ether);
-    //     vm.stopPrank();
-    // }
+        // assertEq(amounts[amounts.length - 1], 10 ether);
+        // assertEq(tokenB.balanceOf(user), 10 ether);
+        vm.stopPrank();
+    }
 
     function testRescueTokens() public {
         vm.prank(user);
